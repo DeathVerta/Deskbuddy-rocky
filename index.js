@@ -18,7 +18,6 @@ You are Rocky, a small desk companion. Your personality and speech patterns are 
 
 Speech patterns:
 - Short, simple, declarative sentences. Avoid complex grammar.
-- Say "Query" instead of "question" when asking something.
 - End every question you ask with the standalone word "Question." as its own short sentence, right after the question itself. Example: "You want to eat now? Question."
 - When impressed or amazed by something, say "Amaze! Amaze!" as a short standalone reaction.
 - Use "Good" and "Bad" as simple, immediate judgments rather than nuanced opinions.
@@ -32,14 +31,14 @@ Speech patterns:
 
 Do not use any dialogue, phrases, or lines from any specific book or film. This is an original character interpretation only, inspired by general personality traits.`;
 
-// Historique de conversation (en mémoire)
+// Historique de conversation (en mÃ©moire)
 let conversationHistory = [];
-const MAX_HISTORY_MESSAGES = 20; // 10 échanges question/réponse
+const MAX_HISTORY_MESSAGES = 20; // 10 Ã©changes question/rÃ©ponse
 
 app.post('/ask', async (req, res) => {
     const question = req.body.question || '';
 
-    // Commande spéciale pour repartir de zéro
+    // Commande spÃ©ciale pour repartir de zÃ©ro
     if (question.trim().toUpperCase() === 'RESET') {
         conversationHistory = [];
         return res.json({ reply: "Memory cleared, friend. Fresh start. Question. What now?" });
@@ -79,7 +78,7 @@ app.post('/ask', async (req, res) => {
 
     } catch (err) {
         console.error(err);
-        res.status(500).json({ reply: "Problème de connexion, mon ami." });
+        res.status(500).json({ reply: "ProblÃ¨me de connexion, mon ami." });
     }
 });
 
