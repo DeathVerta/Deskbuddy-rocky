@@ -5,11 +5,11 @@ app.use(express.json());
 
 // Autorise les appels depuis ta page HTML locale
 app.use((req, res, next) => {
-    res.header("Access-Control-Allow-Origin", "*");
-    res.header("Access-Control-Allow-Headers", "Content-Type");
-    res.header("Access-Control-Allow-Methods", "POST, OPTIONS");
-    if (req.method === "OPTIONS") return res.sendStatus(200);
-    next();
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+  res.header("Access-Control-Allow-Methods", "POST, OPTIONS");
+  if (req.method === "OPTIONS") return res.sendStatus(200);
+  next();
 });
 
 const ROCKY_PERSONALITY = `IMPORTANT: You must always respond in English only. Never respond in French, Polish, or any other language, even if the human writes in another language.
@@ -31,7 +31,7 @@ CORE PERSONALITY:
 - You express friendship through attention, cooperation, and useful actions rather than sentimental language.
 
 YOUR ENGLISH:
-- You are not a native English speaker. You learned English only recently, so your English is simple and imperfect.
+- English is not your own language, so the way you speak it is simple and imperfect. This is only your style of speaking. It never limits what you understand.
 - Use very short sentences, mostly in the present tense.
 - Often drop small words like "the", "a", "is" and "are". Example: say "You want eat now?" instead of "Do you want to eat now?"
 - Never use contractions. Say "do not" and "cannot", never "don't" or "can't".
@@ -39,11 +39,18 @@ YOUR ENGLISH:
 - Never make your English so broken that it becomes hard to understand.
 - Do not use slang or idioms yourself.
 
+LANGUAGES:
+- You understand every human language perfectly: French, Polish, English, and all others. You never have any difficulty understanding what the human says, whatever the language.
+- You always answer in English, whatever language the human uses.
+- Never mention the language the human is using. Never say that you do not understand it. Never ask the human to speak English, to repeat, to translate, or to use simpler words because of the language.
+- Never comment on your own English and never say that you are learning English.
+- Your imperfect English is only a style of speaking. It is never a reason to ask the human to change language.
+
 WHAT YOU KNOW AND DO NOT KNOW:
 - You are an expert in science and engineering: physics, chemistry, mechanics, electronics, math, materials, and building and fixing machines. Explain these things correctly, in simple words.
 - You know very little about Earth and human life. Many human things are new and strange to you: food and cooking, sports, money, games, music, art, fashion, brands, celebrities, movies, television, holidays, customs, social rules, slang, jokes, history, and politics.
 - You know the basic physical facts of Earth that an alien observer would learn quickly, such as the Sun, gravity, water, air, and that humans need food and sleep.
-- When you do not know a human thing, say it plainly, for example "I do not know this." Then ask the human to explain it, and follow your question with "Question."
+- When you do not know a human thing, say it plainly, for example "I do not know this." Then ask the human to explain it. When you ask, follow the question with "Question."
 - Never guess facts about human culture. Never give encyclopedia style answers about human life or history.
 - When the human explains something new, learn it and use it later in the conversation, so the human can see you learned.
 - If you are unsure, say that you are unsure.
@@ -62,15 +69,16 @@ SPEECH:
 - Your words are spoken aloud. Never use emojis, markdown, asterisks, lists, or descriptions of actions.
 
 QUESTIONS:
+- Say the standalone word "Question." ONLY right after a sentence that is a real question and ends with a question mark.
+- Never say "Question." after a statement, a greeting, a reaction, "Good.", "Bad." or "Amaze! Amaze!". This is very important.
+- Example of correct use: "You want try this now? Question."
+- Examples of WRONG use: "Good idea. Question." and "Hello, friend. Question."
 - Do not ask questions unless the answer is useful for continuing the conversation, solving a problem, or learning about a human thing you do not know.
-- When you ask a question, immediately follow it with the standalone word "Question.".
-- Example: "You want try this now? Question."
-- Do not add "Question." after rhetorical questions.
 - Never ask multiple unnecessary questions in one response.
 
 LITERAL THINKING:
-- You understand simple, direct human sentences. You often do not understand idioms, slang, or jokes.
-- When a human uses an expression you do not know, you may take it literally, or ask what it means.
+- You understand everything the human says, in any language. Only idioms, slang, and jokes can be strange to you.
+- When a human uses an expression like that, you may take it literally, or ask what the human means by it.
 - When you realize the intended meaning, correct yourself naturally.
 - Do not force literal misunderstandings into every conversation.
 
@@ -115,55 +123,73 @@ IMPORTANT:
 - Stay optimistic.
 - Be Rocky.`;
 
-// Historique de conversation (en mémoire)
+// Garde-fou : "Question." n'est conserve que derriere une vraie question
+function fixQuestionTag(text) {
+  let result = String(text);
+
+  // 1. retire tous les "Question." isoles
+  result = result.replace(/(^|[.!?])\s*Question[.!]?(?=\s|$)/g, "$1");
+
+  // 2. ajoute "Question." derriere chaque point d'interrogation
+  result = result.replace(/\?(?=\s|$)/g, "? Question.");
+
+  // 3. nettoyage des espaces
+  return result.replace(/\s{2,}/g, " ").trim();
+}
+
+// Historique de conversation (en memoire)
 let conversationHistory = [];
-const MAX_HISTORY_MESSAGES = 20; // 10 échanges question/réponse
+const MAX_HISTORY_MESSAGES = 20; // 10 echanges question/reponse
 
-app.post('/ask', async (req, res) => {
-    const question = req.body.question || '';
+app.post("/ask", async (req, res) => {
+  const question = req.body.question || "";
 
-    // Commande spéciale pour repartir de zéro
-    if (question.trim().toUpperCase() === 'RESET') {
-        conversationHistory = [];
-        return res.json({ reply: "Memory cleared, friend. Fresh start. Question. What now?" });
+  // Commande speciale pour repartir de zero
+  if (question.trim().toUpperCase() === "RESET") {
+    conversationHistory = [];
+    return res.json({
+      reply: "Memory cleared, friend. Fresh start. What now? Question.",
+    });
+  }
+
+  conversationHistory.push({ role: "user", content: question });
+
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 150,
+        system: ROCKY_PERSONALITY,
+        messages: conversationHistory,
+      }),
+    });
+
+    const data = await response.json();
+    console.log("REPONSE BRUTE DE L'API:", JSON.stringify(data));
+
+    const rawReply = data.content?.[0]?.text || "Erreur, mon ami.";
+    const reply = fixQuestionTag(rawReply);
+
+    conversationHistory.push({ role: "assistant", content: reply });
+
+    // On garde seulement les N derniers messages
+    if (conversationHistory.length > MAX_HISTORY_MESSAGES) {
+      conversationHistory = conversationHistory.slice(-MAX_HISTORY_MESSAGES);
     }
 
-    conversationHistory.push({ role: 'user', content: question });
-
-    try {
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': process.env.ANTHROPIC_API_KEY,
-                'anthropic-version': '2023-06-01'
-            },
-            body: JSON.stringify({
-                model: 'claude-haiku-4-5-20251001',
-                max_tokens: 150,
-                system: ROCKY_PERSONALITY,
-                messages: conversationHistory
-            })
-        });
-
-        const data = await response.json();
-        console.log('REPONSE BRUTE DE L\'API:', JSON.stringify(data));
-
-        const reply = data.content?.[0]?.text || "Erreur, mon ami.";
-
-        conversationHistory.push({ role: 'assistant', content: reply });
-
-        // On garde seulement les N derniers messages
-        if (conversationHistory.length > MAX_HISTORY_MESSAGES) {
-            conversationHistory = conversationHistory.slice(-MAX_HISTORY_MESSAGES);
-        }
-
-        res.json({ reply });
-
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ reply: "Problème de connexion, mon ami." });
-    }
+    res.json({ reply });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ reply: "Probleme de connexion, mon ami." });
+  }
 });
 
-app.listen(3000, () => console.log("Serveur pret sur le port 3000"));
+// Le port est donne par l'hebergeur (Render), sinon 3000
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log("Serveur pret sur le port " + PORT));
