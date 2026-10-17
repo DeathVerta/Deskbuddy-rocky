@@ -137,22 +137,61 @@ function fixQuestionTag(text) {
   return result.replace(/\s{2,}/g, " ").trim();
 }
 
-// Historique de conversation (en memoire)
-let conversationHistory = [];
-const MAX_HISTORY_MESSAGES = 20; // 10 echanges question/reponse
+// ----- Conversations : une memoire par personne ----------------------
+// Chaque conversation a son identifiant (par exemple "camille", "logan" ou
+// "robot" pour les salutations). Sans identifiant, c'est la conversation
+// partagee "default" (compatible avec l'ancien tableau de bord).
+const conversations = new Map(); // id -> historique
+const MAX_HISTORY_MESSAGES = 20; // 10 echanges question/reponse par personne
+const MAX_CONVERSATIONS = 20;
+
+// Code secret facultatif : s'il est defini sur Render (variable ROCKY_SECRET),
+// seuls les programmes qui le connaissent peuvent parler a Rocky.
+const ROCKY_SECRET = process.env.ROCKY_SECRET || "";
+
+function cleanId(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 40);
+}
+
+function cleanName(value) {
+  return String(value || "").replace(/[^\p{L}\p{N} '-]/gu, "").trim().slice(0, 30);
+}
+
+function getHistory(id) {
+  const history = conversations.get(id) || [];
+  conversations.delete(id);
+  conversations.set(id, history); // la plus recente en dernier
+
+  while (conversations.size > MAX_CONVERSATIONS) {
+    conversations.delete(conversations.keys().next().value);
+  }
+  return history;
+}
 
 app.post("/ask", async (req, res) => {
-  const question = req.body.question || "";
+  if (ROCKY_SECRET && req.get("x-rocky-secret") !== ROCKY_SECRET) {
+    return res.status(401).json({ reply: "Not allowed." });
+  }
 
-  // Commande speciale pour repartir de zero
+  const question = String(req.body.question || "").slice(0, 1000);
+  const id = cleanId(req.body.conversationId) || "default";
+  const userName = cleanName(req.body.userName);
+
+  // Commande speciale pour repartir de zero (pour cette conversation seulement)
   if (question.trim().toUpperCase() === "RESET") {
-    conversationHistory = [];
+    conversations.set(id, []);
     return res.json({
       reply: "Memory cleared, friend. Fresh start. What now? Question.",
     });
   }
 
-  conversationHistory.push({ role: "user", content: question });
+  let history = getHistory(id);
+  history.push({ role: "user", content: question });
+
+  const system = userName
+    ? ROCKY_PERSONALITY +
+      `\n\nThe human you are talking to right now is called ${userName}.`
+    : ROCKY_PERSONALITY;
 
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -165,27 +204,35 @@ app.post("/ask", async (req, res) => {
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 150,
-        system: ROCKY_PERSONALITY,
-        messages: conversationHistory,
+        system,
+        messages: history,
       }),
     });
 
     const data = await response.json();
     console.log("REPONSE BRUTE DE L'API:", JSON.stringify(data));
 
-    const rawReply = data.content?.[0]?.text || "Erreur, mon ami.";
+    const rawReply = data.content?.[0]?.text;
+
+    if (!rawReply) {
+      history.pop(); // la question sans reponse ne doit pas rester en memoire
+      return res.json({ reply: "Erreur, mon ami." });
+    }
+
     const reply = fixQuestionTag(rawReply);
 
-    conversationHistory.push({ role: "assistant", content: reply });
+    history.push({ role: "assistant", content: reply });
 
     // On garde seulement les N derniers messages
-    if (conversationHistory.length > MAX_HISTORY_MESSAGES) {
-      conversationHistory = conversationHistory.slice(-MAX_HISTORY_MESSAGES);
+    if (history.length > MAX_HISTORY_MESSAGES) {
+      history = history.slice(-MAX_HISTORY_MESSAGES);
+      conversations.set(id, history);
     }
 
     res.json({ reply });
   } catch (err) {
     console.error(err);
+    history.pop();
     res.status(500).json({ reply: "Probleme de connexion, mon ami." });
   }
 });
